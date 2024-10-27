@@ -234,3 +234,141 @@ export { ApiError };
 ---
 
 **End of Notes**
+
+# Vid Tube App Backend Notes - 27/10
+
+## Health Check Endpoint
+
+### `healthcheck.controllers.js`
+This controller handles a simple health check, which can be useful for ensuring the server is running and responsive.
+
+- **Imports**:  
+  - `ApiResponse`: A utility function for structuring API responses.
+  - `asyncHandler`: A middleware to handle asynchronous errors in Express routes.
+  
+- **Function - `healthcheck`**:
+  - Description: Uses `asyncHandler` to handle errors gracefully.
+  - Returns: A JSON response with status `200` and message `"OK"` indicating that the server is healthy.
+
+  ```javascript
+  const healthcheck = asyncHandler(async (req, res) => {
+      return res
+          .status(200)
+          .json(new ApiResponse(200, "OK", "Health check passed"));
+  });
+
+  export { healthcheck };
+  ```
+
+### `healthcheck.routes.js`
+Defines routes for the health check.
+
+- **Imports**:
+  - `express`: For routing and request handling.
+  - `healthcheck`: The controller function for handling health checks.
+
+- **Router Setup**:
+  - Defines a `GET` request to the base path (`/api/v1/healthcheck`) to trigger the health check.
+
+  ```javascript
+  const router = express.Router();
+  router.route("/").get(healthcheck);
+  export default router;
+  ```
+
+## Express Server Setup
+
+- **Dependencies**:
+  - `express`: Handles the server framework.
+  - `cors`: Enables cross-origin requests, allowing specified origins.
+
+- **Middleware Configuration**:
+  - `cors`: Set with environment variable to restrict allowed origins.
+  - `express.json()` and `express.urlencoded()`: Limit payloads to 16kb to prevent overly large requests.
+  - `express.static("public")`: Serves static files from the `public` directory.
+
+  ```javascript
+  const app = express();
+  app.use(cors({
+      origin: process.env.CORS_ORIGIN,
+      credentials: true
+  }));
+  app.use(express.json({ limit: "16kb" }));
+  app.use(express.urlencoded({ extended: true, limit: "16kb" }));
+  app.use(express.static("public"));
+
+  import healthcheckRouter from "./routes/healthcheck.routes.js";
+  app.use("/api/v1/healthcheck", healthcheckRouter);
+
+  export { app };
+  ```
+
+## User Model - `user.models.js`
+
+Defines the user data structure using Mongoose.
+
+- **Schema Fields**:
+  - `username`: Unique identifier for each user.
+  - `email`: Stores user email, unique for each account.
+  - `fullName`: Full name of the user.
+  - `avatar`: URL link to the user's profile image.
+  - `coverImage`: URL link for a cover image.
+  - `watchHistory`: Array referencing video objects.
+  - `password`: Hashed password for user authentication.
+  - `refreshToken`: Stores token for session management.
+  
+  ```javascript
+  import mongoose, { Schema } from "mongoose";
+
+  const userSchema = new Schema({
+      username: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
+      email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+      fullname: { type: String, required: true, trim: true },
+      avatar: { type: String, required: true },
+      coverImage: { type: String },
+      watchHistory: [{ type: Schema.Types.ObjectId, ref: "Video" }],
+      password: { type: String, required: [true, "Password is required"] },
+      refreshToken: { type: String }
+  }, { timestamps: true });
+
+  export const User = mongoose.model("User", userSchema);
+  ```
+
+## Video Model - `video.models.js`
+
+Schema for storing video-related data.
+
+- **Schema Fields**:
+  - `videoFile`: URL to the video file (stored in the cloud).
+  - `thumbnail`: URL to the video thumbnail image.
+  - `title`: Title of the video.
+  - `description`: Brief description of the video.
+  - `views`: Number of views.
+  - `duration`: Duration of the video in seconds.
+  - `isPublished`: Boolean flag to indicate if the video is publicly accessible.
+  - `owner`: References the User who uploaded the video.
+  
+  ```javascript
+  import mongoose, { Schema } from "mongoose";
+
+  const videoSchema = new Schema({
+      videoFile: { type: String, required: true },
+      thumbnail: { type: String, required: true },
+      title: { type: String, required: true },
+      description: { type: String, required: true },
+      views: { type: Number, required: true },
+      duration: { type: Number, default: 0 },
+      isPublished: { type: Boolean, default: true },
+      owner: { type: Schema.Types.ObjectId, ref: "User" }
+  }, { timestamps: true });
+
+  export const Video = mongoose.model("Video", videoSchema);
+  ```
+
+## Libraries & Plugins Used
+
+- **`mongoose-aggregate-paginate-v2`**: This plugin enables pagination of data during aggregation, allowing efficient handling of large datasets with Mongoose.
+
+  ```javascript
+  import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
+  ```
