@@ -372,3 +372,179 @@ Schema for storing video-related data.
   ```javascript
   import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
   ```
+
+# Vid Tube App Backend Notes - 28/10
+
+## Installed Libraries & Functions
+
+### 1. **Mongoose Hooks, Middlewares, and Methods**
+
+- **Hooks**:
+  Mongoose provides "pre" and "post" hooks which are middleware functions executed before or after certain operations like save, remove, update, etc. These are essential for performing actions automatically.
+
+- **Middlewares**:
+  Mongoose middlewares operate on schema methods to handle tasks such as data validation, transformation, or encryption.
+  
+- **Methods**:
+  Schema methods enable defining custom functions directly within a schema. These functions can be used on any document that follows the schema.
+
+### 2. **Password Encryption - `bcrypt.js`**
+
+`bcrypt.js` is a library for password hashing and comparison, which secures user passwords in the database.
+
+**Installation**:
+
+```bash
+npm install bcrypt
+```
+
+**Code Explanation**:
+
+- **`userSchema.pre("save", async function(next)...)`**:
+  - This hook triggers before a user document is saved. If the password has been modified, it will be hashed with `bcrypt`.
+  - **Example**:
+  
+    ```javascript
+    userSchema.pre("save", async function (next) {
+        if (!this.isModified("password")) return next();
+        this.password = await bcrypt.hash(this.password, 10);
+        next();
+    });
+    ```
+
+- **Password Comparison Method**:
+
+  ```javascript
+  userSchema.methods.isPasswordCorrect = async function (password) {
+      return await bcrypt.compare(password, this.password);
+  };
+  ```
+
+### 3. **JWT Tokens - `jsonwebtoken`**
+
+JWT tokens are used for authenticating and authorizing users. They provide a secure method for transferring user data.
+
+**Installation**:
+
+```bash
+npm install jsonwebtoken
+```
+
+**Code Explanation**:
+
+- **Access Token Method**:
+  
+  ```javascript
+  userSchema.methods.generateAccessToken = function () {
+      return jwt.sign({
+          _id: this._id,
+          email: this.email,
+          username: this.username,
+          fullname: this.fullname
+      }, process.env.ACCESS_TOKEN_SECRET, {
+          expiresIn: process.env.ACCESS_TOKEN_EXPIRY
+      });
+  };
+  ```
+  
+- **Refresh Token Method**:
+  
+  ```javascript
+  userSchema.methods.generateRefreshToken = function () {
+      return jwt.sign({
+          _id: this._id
+      }, process.env.REFRESH_TOKEN_SECRET, {
+          expiresIn: process.env.REFRESH_TOKEN_EXPIRY
+      });
+  };
+  ```
+
+### 4. **Cookie Parser**
+
+This middleware is used to parse cookies attached to client requests.
+
+**Installation**:
+
+```bash
+npm install cookie-parser
+```
+
+### 5. **Multer for File Handling**
+
+`Multer` is a middleware for handling multipart/form-data, mainly used for uploading files.
+
+**Installation**:
+
+```bash
+npm install multer
+```
+
+**Multer Configuration**:
+
+  ```javascript
+  import multer from "multer";
+
+  const storage = multer.diskStorage({
+      destination: function (req, file, cb) {
+          cb(null, './public/temp');
+      },
+      filename: function (req, file, cb) {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+          cb(null, file.fieldname + '-' + uniqueSuffix);
+      }
+  });
+
+  export const upload = multer({ storage: storage });
+  ```
+
+### 6. **File System (`fs`) in Express**
+
+The Node `fs` module is used to handle file operations in the server, such as reading, writing, or deleting files.
+
+### 7. **Cloudinary for Image Handling**
+
+Cloudinary is a cloud service that offers secure and optimized media upload and transformation.
+
+**Installation**:
+
+```bash
+npm install cloudinary
+```
+
+**Cloudinary Configuration & Upload**:
+
+- **Configuring Cloudinary**:
+
+  ```javascript
+  import { v2 as cloudinary } from "cloudinary";
+  import fs from "fs";
+
+  cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+  ```
+
+- **File Upload**:
+
+  ```javascript
+  const uploadOnCloudinary = async (localFilePath) => {
+      try {
+          if (!localFilePath) return null;
+          const response = await cloudinary.uploader.upload(localFilePath, {
+              resource_type: "auto"
+          });
+          console.log("File uploaded on Cloudinary, file src: " + response.url);
+          fs.unlinkSync(localFilePath); // Deletes local file after upload
+          return response;
+      } catch (error) {
+          fs.unlinkSync(localFilePath); // Deletes if upload fails
+          return null;
+      }
+  };
+
+  export { uploadOnCloudinary };
+  ```
+
+---
