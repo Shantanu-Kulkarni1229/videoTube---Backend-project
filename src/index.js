@@ -17,3 +17,9 @@ connectDB()
     console.log("MongoDB connection error", err);
     
 })
+import fs from 'fs';
+const tempDir = './public/temp';
+
+if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+}
