@@ -548,3 +548,124 @@ npm install cloudinary
   ```
 
 ---
+# VidTube App Backend Development Notes (29/10/24)
+## Libraries and Tools Used
+### jsonwebtoken (npm i jsonwebtoken)
+
+Purpose: Library for generating and verifying JWT (JSON Web Tokens) used in authentication.
+Usage in Code: In user.models.js, JWT tokens are generated to create short-lived access and refresh tokens with methods generateAccessToken and generateRefreshToken.
+### bcrypt (npm i bcrypt)
+
+Purpose: A library used for hashing passwords securely.
+Usage in Code: Passwords are hashed before saving a user to the database using userSchema.pre("save"). The isPasswordCorrect method verifies hashed passwords by comparing them with plain text input during login.
+### multer (npm i multer)
+
+Purpose: Middleware for handling file uploads.
+Usage in Code: In multer.middlewares.js, Multer’s diskStorage saves uploaded files locally. upload.fields in user.routes.js handles multiple files, such as avatar and coverImage, during registration.
+###  cloudinary (npm i cloudinary)
+
+Purpose: Cloud-based image and video management service.
+Usage in Code: uploadOnCloudinary function in cloudinary.js uploads images to Cloudinary, and deleteFromCloudinary is used to remove images if a user registration fails.
+### fs (Node.js built-in)
+
+Purpose: Provides methods to work with the file system.
+Usage in Code: fs is used in getUserCoverImage and getUserAvatarImage to handle image files on the server, checking for file existence and reading file data.
+## Detailed Explanation of Code
+### 1. Generating Access and Refresh Tokens
+``` javascript
+
+const generateAccessAndRefereshTokens = async (userId) => {
+    const user = await User.findById(userId);
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+    return { accessToken, refreshToken };
+};
+```
+
+Explanation: This function fetches a user by userId, generates both tokens, saves the refresh token to the database, and returns both tokens.
+### 2. User Registration Controller
+```javascript
+
+const registerUser = asyncHandler(async (req, res) => {
+    const { fullname, email, username, password } = req.body;
+    // Check if required fields are empty
+    if ([fullname, email, username, password].some((field) => !field?.trim())) {
+        throw new ApiError(400, "All fields are required");
+    }
+    // Check if user already exists
+    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
+    if (existingUser) throw new ApiError(409, "User with email or username already exists");
+
+    // Avatar and Cover Image Upload
+    let avatar, coverImage;
+    const avatarLocalPath = req.files?.avatar?.[0]?.path;
+    if (!avatarLocalPath) throw new ApiError(400, "Avatar file is required");
+    avatar = await uploadOnCloudinary(avatarLocalPath);
+    coverImage = coverImageLocalPath ? await uploadOnCloudinary(coverImageLocalPath) : null;
+
+    // Creating User
+    const user = await User.create({
+        fullname,
+        avatar: avatar.url,
+        coverImage: coverImage?.url || "",
+        email,
+        password,
+        username: username.toLowerCase(),
+    });
+    const createdUser = await User.findById(user._id).select("-password -refreshToken");
+
+    res.status(201).json(new ApiResponse(200, createdUser, "User registered successfully"));
+}); 
+```
+### Explanation: This function handles user registration, checking for required fields, uploading images to Cloudinary, and creating the user in the database.
+Model Definitions
+## 1. User Model
+``` javascript
+
+const userSchema = new Schema({
+    username: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    fullname: { type: String, required: true, index: true, trim: true },
+    avatar: { type: String, required: true },
+    coverImage: { type: String },
+    watchHistory: [{ type: Schema.Types.ObjectId, ref: "Video" }],
+    password: { type: String, required: true },
+    refreshToken: { type: String }
+});
+```
+### Explanation: Defines user fields, including references to other models (e.g., watchHistory linking to videos) and schema validation.
+## 2. Mongoose Hooks and Methods
+Password Encryption Hook:
+
+``` javascript
+
+userSchema.pre("save", async function(next) {
+    if (!this.isModified("password")) return next();
+    this.password = await bcrypt.hash(this.password, 10);
+    next();
+});
+```
+### Explanation: Hashes the password before saving the user if the password field was modified.
+Token Generation Methods:
+
+``` javascript
+userSchema.methods.generateAccessToken = function() {
+    return jwt.sign(
+        { _id: this._id, email: this.email, username: this.username },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: process.env.ACCESS_TOKEN_EXPIRY }
+    );
+};
+```
+### Explanation: Generates a signed JWT token with user data.
+3. Error Handling Middleware
+``` javascript
+const errorHandler = (err, req, res, next) => {
+    let error = err instanceof ApiError ? err : new ApiError(500, "Server Error");
+    const response = { message: error.message, ...(process.env.NODE_ENV === "development" ? { stack: error.stack } : {}) };
+    res.status(error.statusCode || 500).json(response);
+};
+```
+Explanation: Custom error handling middleware that formats and sends error responses.
