@@ -669,3 +669,201 @@ const errorHandler = (err, req, res, next) => {
 };
 ```
 Explanation: Custom error handling middleware that formats and sends error responses.
+
+
+# VidTube App Backend Development Notes (30/10/24)
+
+## Libraries and Tools Used
+
+1. **jsonwebtoken (`npm i jsonwebtoken`)**
+   - **Purpose**: Library for generating and verifying JWT (JSON Web Tokens), used in authentication.
+   - **Usage**: JWT tokens are created for access and refresh in authentication workflows, secured using `ACCESS_TOKEN_SECRET` and other environment configurations.
+
+2. **bcrypt (`npm i bcrypt`)**
+   - **Purpose**: A library used for hashing and validating passwords securely.
+   - **Usage**: Ensures that passwords are hashed before being stored and validated correctly during login by comparing plaintext and hashed versions.
+
+---
+
+## Detailed Explanation of Key Functionalities
+
+### 1. Generating Access and Refresh Tokens
+
+```javascript
+const generateAccessAndRefereshTokens = async (userId) => {
+    try {
+        const user = await User.findById(userId);
+        const accessToken = user.generateAccessToken();
+        const refreshToken = user.generateRefreshToken();
+
+        user.refreshToken = refreshToken;
+        await user.save({ validateBeforeSave: false });
+
+        return { accessToken, refreshToken };
+    } catch (error) {
+        throw new ApiError(500, "Something went wrong while generating tokens");
+    }
+};
+```
+
+- **Explanation**: This function is responsible for generating JWT-based access and refresh tokens for user sessions.
+  - It finds the user by `userId`.
+  - It then calls two instance methods, `generateAccessToken` and `generateRefreshToken`, which sign and return JWTs.
+  - The generated refresh token is stored in the user’s database record for session maintenance.
+  - The function returns both tokens or throws an error if there’s an issue.
+
+### 2. Login Controller
+
+```javascript
+const loginUser = asyncHandler(async (req, res) => {
+    const { email, username, password } = req.body;
+
+    if (!email) {
+        throw new ApiError(400, "Email is required");
+    }
+
+    const user = await User.findOne({ $or: [{ username }, { email }] });
+    if (!user) {
+        throw new ApiError(400, "User not found");
+    }
+
+    const isPasswordValid = await user.isPasswordCorrect(password);
+    if (!isPasswordValid) {
+        throw new ApiError(400, "Incorrect password");
+    }
+
+    const { accessToken, refreshToken } = await generateAccessAndRefereshTokens(user._id);
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
+
+    const options = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+    };
+
+    return res
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(new ApiResponse(200, { user: loggedInUser, accessToken, refreshToken }, "User logged in successfully"));
+});
+```
+
+- **Explanation**: Handles user login by validating credentials and generating tokens.
+  - **Step 1**: Validates the input (`email` and `username`).
+  - **Step 2**: Finds the user by `username` or `email`. If not found, an error is thrown.
+  - **Step 3**: Calls `isPasswordCorrect`, a method for bcrypt-based password comparison.
+  - **Step 4**: On successful validation, it calls `generateAccessAndRefereshTokens`.
+  - **Step 5**: Retrieves a cleaned user object and sends back cookies with tokens for secure sessions.
+
+### 3. Logout Controller
+
+```javascript
+const logoutUser = asyncHandler(async (req, res) => {
+    await User.findByIdAndUpdate(req.user._id, { $set: { refreshToken: undefined } }, { new: true });
+
+    const options = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+    };
+
+    return res
+        .status(200)
+        .clearCookie("accessToken", options)
+        .clearCookie("refreshToken", options)
+        .json(new ApiResponse(200, {}, "User logged out successfully"));
+});
+```
+
+- **Explanation**: Logs out the user by removing the refresh token from the database and clearing cookies.
+  - **Step 1**: Finds the user by `req.user._id` (provided by JWT verification) and clears their `refreshToken`.
+  - **Step 2**: Clears cookies `accessToken` and `refreshToken` from the client, ensuring no tokens remain in the browser.
+
+---
+
+## Middleware
+
+### JWT Verification Middleware
+
+```javascript
+export const verifyJWT = asyncHandler(async (req, res, next) => {
+    const token = req.cookies.accessToken || req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) {
+        throw new ApiError(401, "Access token is required");
+    }
+
+    try {
+        const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+        const user = await User.findById(decodedToken?._id).select("-password -refreshToken");
+
+        if (!user) {
+            throw new ApiError(401, "Invalid access token");
+        }
+        req.user = user;
+        next();
+    } catch (error) {
+        throw new ApiError(401, error?.message || "Invalid access token");
+    }
+});
+```
+
+- **Explanation**: This middleware ensures the user has a valid JWT before accessing protected routes.
+  - **Step 1**: Retrieves the JWT token from cookies or headers.
+  - **Step 2**: Verifies the token with `jwt.verify()`.
+  - **Step 3**: If verified, retrieves the user’s info (excluding sensitive fields).
+  - **Step 4**: If successful, attaches the user to the `req` object for access in the next handler, otherwise, throws an error.
+
+---
+
+## Routes
+
+### User Route Setup for Logout
+
+```javascript
+router.route('/logout').post(verifyJWT, logoutUser);
+```
+
+- **Explanation**: Defines a `POST` route for user logout. It applies the `verifyJWT` middleware to ensure only authenticated users can log out, then calls `logoutUser`.
+
+---
+
+## Mongoose Schema (user.model.js) - Additional Details
+
+- **Password Encryption Hook**:
+  ```javascript
+  userSchema.pre("save", async function(next) {
+      if (!this.isModified("password")) return next();
+      this.password = await bcrypt.hash(this.password, 10);
+      next();
+  });
+  ```
+  - **Explanation**: Hashes the password before saving or updating if the password was modified.
+
+- **Token Generation Methods**:
+  ```javascript
+  userSchema.methods.generateAccessToken = function() {
+      return jwt.sign(
+          { _id: this._id, email: this.email, username: this.username },
+          process.env.ACCESS_TOKEN_SECRET,
+          { expiresIn: process.env.ACCESS_TOKEN_EXPIRY }
+      );
+  };
+  ```
+  - **Explanation**: Creates a signed JWT access token with user data.
+
+---
+
+## Error Handling Middleware
+
+```javascript
+const errorHandler = (err, req, res, next) => {
+    let error = err instanceof ApiError ? err : new ApiError(500, "Server Error");
+    const response = { message: error.message, ...(process.env.NODE_ENV === "development" ? { stack: error.stack } : {}) };
+    res.status(error.statusCode || 500).json(response);
+};
+```
+
+- **Explanation**: Formats error responses and provides a stack trace in development for easier debugging.
+
+---
+
+This markdown document captures the core components of your VidTube app backend. Copy this content into a `.md` file for easy reference and future modifications. Let me know if you need further adjustments or additional clarifications!
