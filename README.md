@@ -128,11 +128,5 @@ MongoDB: For a flexible NoSQL database solution.
 Postman: For efficient API testing.
 Happy coding! 🚀
 
-vbnet
-Copy code
 
-### Key Changes:
-- I've added a new section titled **"Routes Declaration"** to include the route setup code you provided.
-- The routes are listed clearly, along with their purpose, and integrated into the existing **API Endpoints** section.
 
-Let me know if you need anything else added or customized!
