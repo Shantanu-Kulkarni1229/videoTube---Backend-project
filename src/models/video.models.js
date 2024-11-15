@@ -1,58 +1,47 @@
-/* 
-owner ObjectId users
-videoFile string
-thumbnail string
-title string
-description string
-duration number
-views number
-isPublished boolean
-createdAt Date
-updatedAt Date
-*/
+import mongoose, {Schema} from "mongoose";
+import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
 
-
-import mongoose, { Schema} from "mongoose";
-
-const userSchema = new Schema (
+const videoSchema = new Schema(
     {
-        videoFile:{
-            type: String, // CLOUD url
+        videoFile: {
+            type: String, //cloudinary url
             required: true
         },
-        thumbnail:{
-            type: String, // CLOUD url
+        thumbnail: {
+            type: String, //cloudinary url
             required: true
         },
-        title:{
+        title: {
             type: String, 
-            required: true 
-        },
-        description:{
-            type: String, 
-            required: true 
-        },
-        views:{
-            type: Number,
             required: true
-
         },
-        duration:{
+        description: {
+            type: String, 
+            required: true
+        },
+        duration: {
+            type: Number, 
+            required: true
+        },
+        views: {
             type: Number,
             default: 0
-
         },
-        isPublished:{
-            type: boolean,
+        isPublished: {
+            type: Boolean,
             default: true
         },
-        owner:{
+        owner: {
             type: Schema.Types.ObjectId,
-            ref: 'User',
+            ref: "User"
         }
 
-    },
-    { timestamps: true }
+    }, 
+    {
+        timestamps: true
+    }
 )
 
-export const Video = mongoose.model('Video', userSchema);
+videoSchema.plugin(mongooseAggregatePaginate)
+
+export const Video = mongoose.model("Video", videoSchema)
